@@ -1233,22 +1233,23 @@ function onlineJoin(){if(!ensurePeer())return;const el=document.getElementById('
 function onGuestData(o){if(!o||!o.t||!ONLINE)return;
  if(o.t==='lobby'){ONLINE.myId=o.you;guestLobby(o.count);}
  else if(o.t==='full'){netCard('参加できません','ルームが満員、または既に開始しています。','<button class="btn ghost" onclick="onlineCancel()">もどる</button>');}
- else if(o.t==='begin'){ONLINE.started=true;ONLINE.ended=false;ONLINE.lastS=o.S;ONLINE._turnPinged=false;closeOv();show('s-battle');BGM.start();renderNet(o.S);}
- else if(o.t==='state'){if(ONLINE.ended)return;ONLINE.lastS=o.S;renderNet(o.S);}
+ else if(o.t==='begin'){ONLINE.started=true;ONLINE.ended=false;ONLINE.lastS=o.S;ONLINE.lastTurn=o.S.curTurn;ONLINE.acted=false;ONLINE.pending=null;ONLINE._turnPinged=false;closeOv();show('s-battle');BGM.start();renderNet(o.S);}
+ else if(o.t==='state'){if(ONLINE.ended)return;if(o.S.curTurn!==ONLINE.lastTurn){ONLINE.lastTurn=o.S.curTurn;ONLINE.acted=false;ONLINE.pending=null;}ONLINE.lastS=o.S;renderNet(o.S);}
  else if(o.t==='end'){ONLINE.ended=true;ONLINE.lastS=o.S;BGM.stop();renderNetEnd(o);}}
 function guestLobby(count){netCard('参加しました','ホストが開始するのを待っています…<br>現在 <b>'+count+'</b> 人',' <button class="btn ghost" onclick="onlineCancel()">退出</button>');}
 function onlineCancel(){SFX.back();cleanupNet();openOnlineMenu();}
 function cleanupNet(){BGM.stop();try{ONLINE&&ONLINE.peer&&ONLINE.peer.destroy();}catch(e){}NET=null;ONLINE=null;}
 function onlinePeerLost(){if(ONLINE&&ONLINE.ended)return;BGM.stop();netCard('切断','接続が切れました。','<button class="btn" onclick="closeOv();cleanupNet();go(\'home\')">ホームへ</button>');try{ONLINE&&ONLINE.peer&&ONLINE.peer.destroy();}catch(e){}NET=null;}
-function netCommit(desc){if(!ONLINE||ONLINE.role!=='guest'||!ONLINE.myTurn)return;SFX.tap();ONLINE.myTurn=false;ONLINE._turnPinged=false;netSend({t:'move',mv:desc});if(ONLINE.lastS)renderNet(ONLINE.lastS);}
-function netClear(){if(ONLINE&&ONLINE.lastS)renderNet(ONLINE.lastS);}
+function netCommit(desc){if(!ONLINE||ONLINE.role!=='guest'||!ONLINE.myTurn||ONLINE.acted)return;SFX.tap();ONLINE.acted=true;ONLINE.pending=null;ONLINE.myTurn=false;ONLINE._turnPinged=false;netSend({t:'move',mv:desc});if(ONLINE.lastS)renderNet(ONLINE.lastS);}
+function netClear(){if(!ONLINE)return;ONLINE.pending=null;if(ONLINE.lastS)renderNet(ONLINE.lastS);}
+function netTarget(t){if(!ONLINE||!ONLINE.myTurn||ONLINE.acted||!ONLINE.pending)return;netCommit({type:'attack',cardId:ONLINE.pending.cardId,target:t});}
 function netCardFace(c,i){
  if(c.kind==='weapon'){const r=ELRAW[c.element];return `<div class="gcard" style="color:${r}" onclick="netPick(${i})"><div class="orbz"><span class="et">${ELI[c.element]}</span><span class="v" style="color:${r}">${c.power}</span></div><span class="cap">攻撃</span></div>`;}
  if(c.kind==='shield')return `<div class="gcard" style="color:#33c6e6" onclick="netPick(${i})"><div class="orbz"><span class="et">${ELI[c.element]}</span><span class="v" style="color:#7fe9ff">${c.block}</span></div><span class="cap">守護</span></div>`;
  if(c.kind==='potion')return `<div class="gcard" style="color:#6fe23f" onclick="netPick(${i})"><div class="orbz"><span class="v" style="color:#aaff6b">+${c.heal}</span></div><span class="cap">癒し</span></div>`;
  const m=SPEC_META[c.spec];return `<div class="gcard" style="color:${m.col}" onclick="netPick(${i})"><div class="orbz"><span style="width:26px;height:26px;display:block">${ART.special}</span></div><span class="cap" style="color:${m.col};font-weight:900">${m.name}</span></div>`;}
 function renderNet(S){if(!ONLINE)return;const my=ONLINE.myId,me=S.players[my];if(!me){return;}
- const myTurn=(S.curTurn===my)&&me.alive&&!me.down&&!ONLINE.ended;
+ const myTurn=(S.curTurn===my)&&!ONLINE.acted&&me.alive&&!me.down&&!ONLINE.ended;
  const elj={fire:'火',water:'水',grass:'草',thunder:'雷',poison:'毒'};
  const badge=(p)=>`${p.psn>0?`<span class="badge b-psn">毒${p.psn}</span>`:''}${p.guard?`<span class="badge b-guard">盾${elj[p.guard.element]||''}${p.guard.block}</span>`:''}`;
  const opps=S.order.filter(id=>id!==my);
@@ -1261,16 +1262,14 @@ function renderNet(S){if(!ONLINE)return;const my=ONLINE.myId,me=S.players[my];if
  if(ONLINE.ended){h+=`<div class="hint">試合終了</div>`;}
  else if(me.down){h+=`<div class="hint">復活を待っています…</div>`;}
  else if(!myTurn){const cur=S.players[S.curTurn];h+=`<div class="hint">${cur?cur.name+' の番です…':'相手の番です…'}</div>`;}
- else{h+=`<div class="card" style="padding:10px"><div class="lbl" style="margin-bottom:5px">あなたの番・オーブをタップ</div><div class="hand">`+(me.hand||[]).map((c,i)=>netCardFace(c,i)).join('')+`</div><button class="btn ghost" style="margin-top:8px" onclick="netCommit({type:'draw'})">チャージ（引き寄せる）</button></div><div id="netMove"></div>`;}
+ else if(ONLINE.pending){const al=opps.filter(id=>S.players[id].alive&&!S.players[id].down);h+=`<div class="card" style="padding:10px"><div class="lbl" style="margin-bottom:6px">攻撃する相手をえらぶ</div>`+al.map(t=>`<button class="btn" style="margin-top:6px" onclick="netTarget('${t}')">${S.players[t].name}（HP${S.players[t].hp}）に攻撃</button>`).join('')+`<button class="btn ghost" style="margin-top:8px" onclick="netClear()">やめる</button></div>`;}
+ else{h+=`<div class="card" style="padding:10px"><div class="lbl" style="margin-bottom:5px">あなたの番・オーブをタップ</div><div class="hand">`+(me.hand||[]).map((c,i)=>netCardFace(c,i)).join('')+`</div><button class="btn ghost" style="margin-top:8px" onclick="netCommit({type:'draw'})">チャージ（引き寄せる）</button></div>`;}
  h+=`</div>`;
  const el=document.getElementById('s-battle');if(el)el.innerHTML=h;ONLINE.myTurn=myTurn;
  if(myTurn){if(!ONLINE._turnPinged){ONLINE._turnPinged=true;SFX.turn();}}else{ONLINE._turnPinged=false;}}
-function netPick(i){if(!ONLINE||!ONLINE.myTurn)return;const S=ONLINE.lastS;if(!S)return;const me=S.players[ONLINE.myId];const c=me.hand[i];if(!c)return;SFX.sel();const mm=document.getElementById('netMove');
- if(c.kind==='weapon'){const al=S.order.filter(id=>id!==ONLINE.myId&&S.players[id].alive&&!S.players[id].down);
-  if(al.length===0)return;
-  if(al.length===1){netCommit({type:'attack',cardId:c.id,target:al[0]});return;}
-  if(mm)mm.innerHTML=`<div class="lbl" style="margin:6px 2px 2px">攻撃する相手をえらぶ</div>`+al.map(t=>`<button class="btn" style="margin-top:6px" onclick="netCommit({type:'attack',cardId:'${c.id}',target:'${t}'})">${S.players[t].name}（HP${S.players[t].hp}）</button>`).join('')+`<button class="btn ghost" style="margin-top:6px" onclick="netClear()">やめる</button>`;
- } else if(c.kind==='shield'){netCommit({type:'guard',cardId:c.id});}
+function netPick(i){if(!ONLINE||!ONLINE.myTurn||ONLINE.acted)return;const S=ONLINE.lastS;if(!S)return;const me=S.players[ONLINE.myId];const c=me.hand[i];if(!c)return;SFX.sel();
+ if(c.kind==='weapon'){const al=S.order.filter(id=>id!==ONLINE.myId&&S.players[id].alive&&!S.players[id].down);if(al.length===0)return;ONLINE.pending={cardId:c.id};renderNet(S);return;}
+ if(c.kind==='shield'){netCommit({type:'guard',cardId:c.id});}
  else if(c.kind==='potion'){netCommit({type:'heal',cardId:c.id});}
  else {netCommit({type:'special',cardId:c.id});}}
 function renderNetEnd(o){const S=o.S,w=o.winner,youWin=(w===ONLINE.myId);const ov=document.getElementById('ov');SFX.win();if(youWin)confetti();
